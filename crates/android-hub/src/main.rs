@@ -68,6 +68,7 @@ struct StartArgs {
 struct Check {
     name: &'static str,
     available: bool,
+    required: bool,
     hint: &'static str,
 }
 
@@ -95,31 +96,40 @@ fn doctor(json: bool) -> Result<()> {
         Check {
             name: "adb",
             available: which::which("adb").is_ok(),
+            required: true,
             hint: "Install Android platform-tools.",
         },
         Check {
             name: "scrcpy",
             available: which::which("scrcpy").is_ok(),
+            required: false,
             hint: "Install scrcpy for Android camera forwarding.",
         },
         Check {
             name: "pactl",
             available: which::which("pactl").is_ok(),
+            required: true,
             hint: "Install PipeWire with pipewire-pulse.",
         },
         Check {
             name: "pw-cat",
             available: which::which("pw-cat").is_ok(),
+            required: true,
             hint: "Install PipeWire tools.",
         },
         Check {
             name: "v4l2loopback",
             available: std::path::Path::new("/dev/video10").exists(),
+            required: false,
             hint: "Provision a v4l2loopback device, then use --v4l2-sink.",
         },
     ];
     emit(&checks, json);
-    if checks.iter().all(|c| c.available) {
+    if checks
+        .iter()
+        .filter(|check| check.required)
+        .all(|check| check.available)
+    {
         Ok(())
     } else {
         anyhow::bail!("One or more required dependencies are unavailable")

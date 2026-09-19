@@ -11,6 +11,14 @@ use std::{
 pub const MIC_DEVICE_PORT: u16 = 61_394;
 pub const MIC_HOST_PORT: u16 = 61_394;
 
+fn cleanup_partial_audio_bridge(null_sink: u32, writer: &mut Child, serial: &str) {
+    let _ = writer.kill();
+    let _ = Command::new("pactl")
+        .args(["unload-module", &null_sink.to_string()])
+        .status();
+    adb::remove_forward(serial, MIC_HOST_PORT);
+}
+
 pub struct AudioBridge {
     null_sink: u32,
     writer: Child,
@@ -50,20 +58,40 @@ impl AudioBridge {
                 "1",
                 "--target",
                 "android_hub_mic",
+                "-",
             ])
             .stdin(Stdio::piped())
             .spawn()
             .context("Could not run pw-cat")?;
-        adb::forward(serial, MIC_HOST_PORT, MIC_DEVICE_PORT)?;
-        adb::start_mic_service(serial)?;
-        let mut stream = (0..20).find_map(|_| {
-            match TcpStream::connect(("127.0.0.1", MIC_HOST_PORT)) {
+        if let Err(error) = adb::forward(serial, MIC_HOST_PORT, MIC_DEVICE_PORT) {
+            cleanup_partial_audio_bridge(null_sink, &mut writer, serial);
+            return Err(error);
+        }
+        let mut stream = match (0..20)
+            .find_map(|_| match TcpStream::connect(("127.0.0.1", MIC_HOST_PORT)) {
                 Ok(stream) => Some(Ok(stream)),
-                Err(_) => { thread::sleep(Duration::from_millis(150)); None }
+                Err(_) => {
+                    thread::sleep(Duration::from_millis(150));
+                    None
+                }
+            })
+            .unwrap_or_else(|| Err(anyhow::anyhow!("Android microphone service is not ready. Open Android Hub and grant microphone permission.")))
+        {
+            Ok(stream) => stream,
+            Err(error) => {
+                cleanup_partial_audio_bridge(null_sink, &mut writer, serial);
+                return Err(error);
             }
-        }).unwrap_or_else(|| Err(anyhow::anyhow!("Android microphone service is not ready. Open Android Hub and grant microphone permission.")))?;
-        let format = protocol::read_header(&mut stream)?;
+        };
+        let format = match protocol::read_header(&mut stream) {
+            Ok(format) => format,
+            Err(error) => {
+                cleanup_partial_audio_bridge(null_sink, &mut writer, serial);
+                return Err(error.into());
+            }
+        };
         if format != protocol::AudioFormat::PCM_48K_MONO {
+            cleanup_partial_audio_bridge(null_sink, &mut writer, serial);
             anyhow::bail!("Android sent an unsupported audio format");
         }
         let mut stdin = writer

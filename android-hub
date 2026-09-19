@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Run Android Hub with the dependencies declared in this repository's flake.
+set -euo pipefail
+
+project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+binary="$project_dir/target/release/android-hub"
+
+if [[ ! -x "$binary" ]]; then
+  nix develop "$project_dir" --command cargo build --release
+fi
+
+cd "$project_dir"
+exec nix develop "$project_dir" --command "$binary" "$@"

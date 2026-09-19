@@ -14,7 +14,7 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private val requestAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        status.text = if (granted) "Microphone permission granted. Connect from the Linux terminal." else "Microphone permission is required to use Android as a microphone."
+        if (granted) startMicrophoneService() else status.text = "Microphone permission is required to use Android as a microphone."
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,8 +26,15 @@ class MainActivity : AppCompatActivity() {
         layout.addView(Button(this).apply { text = "Stop microphone sharing"; setOnClickListener { stopService(Intent(this@MainActivity, MicStreamService::class.java)); status.text = "Microphone sharing stopped." } })
         setContentView(layout); requestPermission()
     }
+    override fun onResume() {
+        super.onResume()
+        requestPermission()
+    }
     private fun requestPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) status.text = "Ready. Run android-hub start --mic on Linux." else requestAudio.launch(Manifest.permission.RECORD_AUDIO)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startMicrophoneService() else requestAudio.launch(Manifest.permission.RECORD_AUDIO)
+    }
+    private fun startMicrophoneService() {
+        ContextCompat.startForegroundService(this, Intent(this, MicStreamService::class.java))
+        status.text = "Microphone sharing is ready. Run android-hub start --mic on Linux."
     }
 }
-
